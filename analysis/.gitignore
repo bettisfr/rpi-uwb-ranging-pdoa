@@ -4,3 +4,5 @@ csv/*
 plots/*
 !plots/.gitkeep
 src/__pycache__/
+outputs/*
+!outputs/.gitkeep

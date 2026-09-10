@@ -1,0 +1,51 @@
+{
+  "campaign": "static",
+  "dataset": "analysis/csv/static_measurements.csv",
+  "targets": [
+    "ground_distance_error_m",
+    "eta_residual_deg"
+  ],
+  "feature_sets": {
+    "coplanar_core": [
+      "range_m",
+      "pdoa_deg",
+      "tag_rotation_deg"
+    ],
+    "coplanar_enriched": [
+      "range_m",
+      "pdoa_deg",
+      "tag_rotation_deg",
+      "clk_ppm"
+    ],
+    "height_aware": [
+      "range_m",
+      "pdoa_deg",
+      "tag_rotation_deg",
+      "clk_ppm",
+      "height_difference_m"
+    ]
+  },
+  "models": [
+    "constant_offset",
+    "linear_regression",
+    "quadratic_regression",
+    "trigonometric_regression",
+    "random_forest",
+    "support_vector_regression",
+    "mlp_regression",
+    "autoencoder_representation"
+  ],
+  "splits": [
+    "random_diagnostic",
+    "grouped_run",
+    "leave_one_distance_out",
+    "leave_one_height_out"
+  ],
+  "excluded_features": [
+    "target_ground_distance_m",
+    "gt_bearing_deg",
+    "gt_x_m",
+    "gt_y_m",
+    "gt_range_3d_m"
+  ]
+}
