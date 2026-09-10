@@ -1,5 +1,10 @@
 {
   "campaign": "static",
+  "grouped_split": {
+    "seed": 42,
+    "validation_fraction": 0.2,
+    "test_fraction": 0.2
+  },
   "dataset": "analysis/csv/static_measurements.csv",
   "targets": [
     "ground_distance_error_m",
