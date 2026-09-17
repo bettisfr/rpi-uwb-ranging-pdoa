@@ -11,18 +11,17 @@ from __future__ import annotations
 import csv
 import json
 import math
-from pathlib import Path
 
 import numpy as np
 from sklearn.linear_model import HuberRegressor
 
-from recalculate_uav_local_frame import enu
+from uav.config import ANALYSIS, UAV_PREDICTIONS, UAV_REFERENCE
+from uav.coordinates import q4_heading_deg
 
 
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "analysis" / "outputs" / "uav_range_transfer" / "predictions.csv"
-REFERENCE = ROOT / "data" / "uav-20260903" / "reference.json"
-OUTPUT = ROOT / "analysis" / "outputs" / "uav_geometry_residual"
+SOURCE = UAV_PREDICTIONS
+REFERENCE = UAV_REFERENCE
+OUTPUT = ANALYSIS / "outputs" / "uav_geometry_residual"
 
 
 def feature_matrix(rows: list[dict[str, str]], q4_heading_deg: float, model: str) -> np.ndarray:
@@ -56,9 +55,7 @@ def summarize(error: np.ndarray) -> dict[str, float]:
 
 def main() -> None:
     reference = json.loads(REFERENCE.read_text())
-    east, north = enu(reference["origin_lat_deg"], reference["origin_lon_deg"],
-                      reference["q4_lat_deg"], reference["q4_lon_deg"])
-    q4_heading_deg = math.degrees(math.atan2(east, north))
+    q4_heading = q4_heading_deg(reference)
     with SOURCE.open(newline="") as source:
         rows = list(csv.DictReader(source))
     flights = sorted({row["flight"] for row in rows})
@@ -72,8 +69,8 @@ def main() -> None:
             if name == "offset":
                 correction = np.full(test_mask.sum(), -target[train_mask].mean())
             else:
-                train_x = feature_matrix([row for row, keep in zip(rows, train_mask) if keep], q4_heading_deg, name)
-                test_x = feature_matrix([row for row, keep in zip(rows, test_mask) if keep], q4_heading_deg, name)
+                train_x = feature_matrix([row for row, keep in zip(rows, train_mask) if keep], q4_heading, name)
+                test_x = feature_matrix([row for row, keep in zip(rows, test_mask) if keep], q4_heading, name)
                 model = HuberRegressor(fit_intercept=False, alpha=0., max_iter=1000).fit(train_x, target[train_mask])
                 correction = -model.predict(test_x)
             error = target[test_mask] + correction
@@ -86,7 +83,7 @@ def main() -> None:
     (OUTPUT / "manifest.json").write_text(json.dumps({
         "status": "complete", "protocol": "train one flight, test the other",
         "caveat": "Relative bearing is ground-truth-derived and diagnostic only.",
-        "q4_heading_from_north_deg": q4_heading_deg,
+        "q4_heading_from_north_deg": q4_heading,
     }, indent=2) + "\n")
     for row in report:
         print(row)

@@ -47,42 +47,25 @@ def predict_harmonic(features, model):
 
 
 def fit_torch_mlp(features_train, expected_train, features_eval, *, seed=42):
-    """Predict cos/sin expected phase using the verified CUDA runtime."""
-    import torch
-    from torch import nn
-    from torch.utils.data import DataLoader, TensorDataset
+    """Predict expected phase with the common fully CUDA-resident MLP routine.
 
-    if not torch.cuda.is_available():
-        raise RuntimeError("Continuous PDoA MLP requires CUDA")
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    center, scale = features_train.mean(axis=0), features_train.std(axis=0)
-    if np.any(scale == 0):
-        raise ValueError("Continuous MLP features need nonzero training variance")
-    train_x = (features_train - center) / scale
-    eval_x = (features_eval - center) / scale
+    Keeping the complete fold tensors on the GPU is important here: LOBO trains
+    nine large development folds, so a CPU DataLoader and per-batch host/device
+    transfers would otherwise dominate the runtime.
+    """
+    from .phase_torch import PARAMETERS, fit_predict
+
+    if seed != PARAMETERS["seed"]:
+        raise ValueError("The continuous benchmark uses the shared fixed CUDA seed")
     radians = np.deg2rad(expected_train)
     train_y = np.column_stack((np.cos(radians), np.sin(radians)))
-    device = torch.device("cuda")
-    model = nn.Sequential(nn.Linear(train_x.shape[1], 64), nn.ReLU(), nn.Linear(64, 32), nn.ReLU(), nn.Linear(32, 2)).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-    loader = DataLoader(TensorDataset(torch.as_tensor(train_x, dtype=torch.float32),
-                                      torch.as_tensor(train_y, dtype=torch.float32)),
-                        batch_size=8192, shuffle=True, generator=torch.Generator().manual_seed(seed))
-    model.train()
-    for _ in range(200):
-        for x_batch, y_batch in loader:
-            prediction = model(x_batch.to(device))
-            loss = ((prediction - y_batch.to(device))**2).mean()
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-    model.eval()
-    with torch.no_grad():
-        vector = model(torch.as_tensor(eval_x, dtype=torch.float32, device=device)).cpu().numpy()
-    return np.rad2deg(np.arctan2(vector[:, 1], vector[:, 0])), dict(device=torch.cuda.get_device_name(device),
-                                                                       epochs=200, feature_center=center.tolist(),
-                                                                       feature_scale=scale.tolist())
+    vector, _, info = fit_predict(features_train, train_y, features_eval)
+    return np.rad2deg(np.arctan2(vector[:, 1], vector[:, 0])), {
+        "runtime": "shared fully CUDA-resident PyTorch implementation",
+        "epochs": PARAMETERS["epochs"],
+        "batch_size": PARAMETERS["batch_size"],
+        **info,
+    }
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:

@@ -11,25 +11,17 @@ from __future__ import annotations
 import csv
 import json
 import math
-from pathlib import Path
 
 import numpy as np
 
-from recalculate_uav_local_frame import enu
+from uav.angles import circular_mean_degrees, wrap_degrees
+from uav.config import ANALYSIS, UAV_PREDICTIONS, UAV_REFERENCE
+from uav.coordinates import q4_heading_deg
 
 
-ROOT = Path(__file__).resolve().parents[2]
-PREDICTIONS = ROOT / "analysis" / "outputs" / "uav_range_transfer" / "predictions.csv"
-REFERENCE = ROOT / "data" / "uav-20260903" / "reference.json"
-OUTPUT = ROOT / "analysis" / "outputs" / "uav_bearing_position"
-
-
-def wrap_degrees(values: np.ndarray) -> np.ndarray:
-    return (values + 180.) % 360. - 180.
-
-
-def circular_mean_degrees(values: np.ndarray) -> float:
-    return float(math.degrees(math.atan2(np.sin(np.radians(values)).mean(), np.cos(np.radians(values)).mean())))
+PREDICTIONS = UAV_PREDICTIONS
+REFERENCE = UAV_REFERENCE
+OUTPUT = ANALYSIS / "outputs" / "uav_bearing_position"
 
 
 def metrics(
@@ -55,9 +47,7 @@ def metrics(
 
 def main() -> None:
     reference = json.loads(REFERENCE.read_text())
-    east, north = enu(reference["origin_lat_deg"], reference["origin_lon_deg"],
-                      reference["q4_lat_deg"], reference["q4_lon_deg"])
-    q4_heading_deg = math.degrees(math.atan2(east, north))
+    q4_heading = q4_heading_deg(reference)
     with PREDICTIONS.open(newline="") as source:
         source_rows = list(csv.DictReader(source))
 
@@ -66,7 +56,7 @@ def main() -> None:
         math.degrees(math.atan2(float(row["firmware_y_m"]), float(row["firmware_x_m"])))
         for row in rows
     ])
-    yaw_relative = np.asarray([float(row["yaw_deg"]) - q4_heading_deg for row in rows])
+    yaw_relative = np.asarray([float(row["yaw_deg"]) - q4_heading for row in rows])
     ground_theta = np.asarray([
         math.degrees(math.atan2(
             float(row["tag_y_m"]) - float(row["nearest_node_y_m"]),
@@ -128,7 +118,7 @@ def main() -> None:
         writer.writeheader(); writer.writerows(records)
     (OUTPUT / "manifest.json").write_text(json.dumps({
         "status": "complete", "samples": len(rows), "excluded_zero_firmware_vector": len(source_rows) - len(rows),
-        "q4_heading_from_north_deg": q4_heading_deg,
+        "q4_heading_from_north_deg": q4_heading,
         "bearing": "atan2(firmware_y_m, firmware_x_m), then one constant yaw offset",
         "range": "static quadratic correction transferred without UAV fitting",
     }, indent=2) + "\n")

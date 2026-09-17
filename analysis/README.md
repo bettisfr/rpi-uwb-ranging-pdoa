@@ -1,13 +1,71 @@
 # Measurement-analysis workflow
 
-This directory keeps the reproducible analysis workflow separate from field
-acquisition and from paper-specific plotting code.
+This directory keeps reproducible analysis separate from field acquisition and
+from paper-specific plotting code.  It has two deliberately separate parts:
+the controlled static calibration workflow in `src/workflow/`, and the
+RTK-referenced UAV transfer workflow in `src/uav/`.
 
-The existing `src/main.py` normalizes the static campaigns and exports the
-descriptive tables already used by the manuscript.
-The files under `src/workflow/` prepare the next stage: controlled benchmark
-experiments for range correction, PDoA-phase correction, and derived position
-evaluation.
+## Where to modify a model
+
+Keep data loading, surveyed geometry, splits, metrics, and exports fixed when
+comparing a new correction.  Add or alter a model only in the indicated area:
+
+| Question | Modify | Keep fixed |
+| --- | --- | --- |
+| Improve static range correction | `src/workflow/distance_models.py` | `data.py`, `splits.py`, `metrics.py` |
+| Improve static PDoA correction | `src/workflow/phase_*.py` | circular metrics and the selected split |
+| Change derived static position reconstruction | `src/workflow/position_benchmark.py` | range/PDoA input contracts |
+| Change UAV geometry or reference frame | `src/uav/config.py`, `src/uav/coordinates.py` | do not tune from dynamic-test results |
+| Add an exploratory UAV diagnostic | a new `evaluate_uav_*.py` script | label it as diagnostic if it uses flight ground truth |
+
+`src/workflow.py` and `src/uav_workflow.py` are command-line entry points;
+they should remain thin dispatchers.  Generated `csv/`, `outputs/`, and
+`plots/` files are ignored by Git.  Every substantive run writes CSV/JSON
+artifacts with provenance so a plot or paper table never depends on in-memory
+model objects.
+
+## Reproducing the documented analyses
+
+Run commands from the repository root.  On this workstation, the maintained
+interpreter is `/home/fra/pyvenv/bin/python`; throughout this document,
+`python` denotes that interpreter (or an equivalent environment created by
+another user).  Confirm it before running a benchmark:
+
+```bash
+/home/fra/pyvenv/bin/python --version
+```
+
+Install the regular dependencies first.  The continuous LOBO MLP and the
+separate PyTorch comparison require the CUDA dependency file as well; they do
+not silently fall back to CPU.
+
+```bash
+/home/fra/pyvenv/bin/python -m pip install -r analysis/requirements.txt
+/home/fra/pyvenv/bin/python -m pip install -r analysis/requirements-gpu.txt
+
+# Normalize, audit, and create the static grouped split.
+python analysis/src/main.py --build-static-dataset
+python analysis/src/workflow.py --split-static
+
+# Static range, PDoA/bearing, and derived position benchmarks.
+# The LOBO command uses CUDA for its MLP fold in addition to CPU baselines.
+python analysis/src/workflow.py --compare-distance --lodo-distance
+python analysis/src/workflow.py --lodo-phase-stratified --lobo-phase-continuous
+python analysis/src/workflow.py --evaluate-generic-position
+python analysis/src/windowed_position_sensitivity.py
+
+# UAV: only after the static split and range configuration above are available.
+python analysis/src/uav_workflow.py --all
+```
+
+On the local machine, replace every `python` command below with
+`/home/fra/pyvenv/bin/python` if that interpreter is not already active.
+
+The UAV runner performs the source audit, independent RTK-frame recalculation,
+frozen static-range transfer, PDoA diagnostic, cross-flight bearing/position
+evaluation, and the range-transfer plot in dependency order.  It does not run
+the optional `*_ad_hoc.py` experiments, because those use flight-specific
+ground truth and must not be confused with deployable transfer results.
 
 ## Layout
 
@@ -21,6 +79,8 @@ analysis/
     main.py      current static-data normalization and descriptive analysis
     workflow/    benchmark contracts, splits, models, metrics, and exports
     workflow.py  command-line entry point for the benchmark workflow
+    uav/         surveyed UAV configuration, coordinates, and angle utilities
+    uav_workflow.py  command-line entry point for the documented UAV transfer workflow
 ```
 
 Generated files are intentionally ignored by Git.
@@ -28,7 +88,7 @@ Each benchmark run writes a small JSON manifest and CSV files, so plots and
 paper tables can be regenerated from a stable tabular interface rather than
 from model-specific objects.
 
-## Planned benchmark sequence
+## Benchmark sequence
 
 The static data are the training and controlled-validation source.
 The UAV data remain a held-out dynamic transfer campaign.
@@ -64,18 +124,17 @@ MAE and RMSE remain the primary summaries for nonnegative position error.
 From the repository root:
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --prepare --plan
+python analysis/src/workflow.py --prepare --plan
 ```
 
 This command is safe: it creates only ignored, header-only output files and a
 benchmark plan/manifest.
-Model fitting and the additional holdout protocols are deliberately pending.
 The exported column contracts are already fixed in `workflow/contracts.py`.
 
 ## First step: static-data audit
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --audit-static
+python analysis/src/workflow.py --audit-static
 ```
 
 Requires the existing `csv/static_measurements.csv`, produced by
@@ -95,7 +154,7 @@ duplicate acquisition events remains a later step.
 ## Grouped training/validation/test split
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --split-static
+python analysis/src/workflow.py --split-static
 ```
 
 Runs the static audit, then assigns physical conditions to train (60%),
@@ -130,7 +189,7 @@ dataset hash and must be retained with the benchmark results.
 ## Constant horizontal-distance correction
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-offset
+python analysis/src/workflow.py --fit-offset
 ```
 
 Audits the data and regenerates the deterministic grouped split, then fits one
@@ -151,7 +210,7 @@ Repeating this command regenerates the baseline outputs in the same directory.
 ## Linear horizontal-distance correction
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-linear
+python analysis/src/workflow.py --fit-linear
 ```
 
 Requires the existing grouped split and verifies its dataset hash. Fits ordinary
@@ -170,7 +229,7 @@ are exported in meters. These files are regenerated on each invocation.
 ## Quadratic comparison
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-quadratic
+python analysis/src/workflow.py --fit-quadratic
 ```
 
 Fits a degree-two polynomial to horizontal distance using the same training
@@ -186,7 +245,7 @@ set is reserved. The 90th percentile uses the nearest-rank convention.
 ## Random Forest, one observed feature
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-forest
+python analysis/src/workflow.py --fit-forest
 ```
 
 Fits a RandomForestRegressor using only measured horizontal distance, with
@@ -207,8 +266,8 @@ must be assessed separately with leave-one-distance-out.
 ## Complete distance comparison: SVR and MLP
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --compare-distance
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --lodo-distance
+python analysis/src/workflow.py --compare-distance
+python analysis/src/workflow.py --lodo-distance
 ```
 
 Both commands consume the existing grouped assignments and verify the dataset
@@ -256,19 +315,19 @@ datasets are not altered. These commands do not alter the raw source datasets or
 Rerunning a command regenerates its own result directory's named artifacts.
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/plot_distance_lodo.py
+python analysis/src/plot_distance_lodo.py
 ```
 
 Exports LODO range plots: a compact overall comparison separates simple
 calibration candidates from nonlinear baselines, while a second plot reports
 MAE at each held-out distance.
 
-## PDoA baseline and circular offset
+## PDoA diagnostics and calibration
 
-## Raw PDoA diagnostics by tag, height, and rotation
+### Raw PDoA diagnostics by tag, height, and rotation
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/plot_pdoa_diagnostics.py
+python analysis/src/plot_pdoa_diagnostics.py
 ```
 
 Exports raw, circular PDoA-residual summaries without applying a correction.
@@ -278,10 +337,10 @@ and PDF pool the three heights and instead compare the four known tag rotations.
 These diagnostics keep every finite phase record and are deliberately separate
 from range-quality filtering.
 
-## PDoA stratified calibration at unseen distances
+### Stratified calibration at unseen distances
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --lodo-phase-stratified
+python analysis/src/workflow.py --lodo-phase-stratified
 ```
 
 Evaluates circular-offset and two-harmonic trigonometric corrections with each
@@ -292,7 +351,7 @@ bearing are equivalent labels; neither ground-truth distance nor position is an
 input feature. Outputs are in `outputs/pdoa_stratified_lodo/`.
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/plot_phase_stratified.py
+python analysis/src/plot_phase_stratified.py
 ```
 
 Exports overall MAE/RMSE and tag-level MAE PDF plots, with the latter directly
@@ -301,7 +360,7 @@ contrasting raw, global-trigonometric, bearing-trigonometric, and joint models.
 ## Generic position reconstruction at unseen distances
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --evaluate-generic-position
+python analysis/src/workflow.py --evaluate-generic-position
 ```
 
 Combines matching out-of-fold range and PDoA predictions to compare raw firmware
@@ -312,7 +371,7 @@ constraint of the static test-bed; infeasible PDoA projections are explicitly
 clipped to the physical disk and their rate is reported.
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/plot_generic_position.py
+python analysis/src/plot_generic_position.py
 ```
 
 Exports overall and per-tag PDF comparisons of firmware coordinates and the
@@ -321,30 +380,35 @@ generic geometric reconstructions.
 ## Continuous generic PDoA correction at an unseen bearing
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --lobo-phase-continuous
+python analysis/src/workflow.py --lobo-phase-continuous
 ```
 
 Holds out one complete tag/bearing at a time. The continuous models receive
 only measured PDoA, measured range, and known height difference; tag, bearing,
 and rotation are deliberately excluded. The fixed harmonic model and CUDA MLP
-both predict the expected PDoA phase as a continuous quantity.
+both predict the expected PDoA phase as a continuous quantity. The MLP keeps
+each training fold and its minibatch permutation on CUDA; its manifest records
+the device, runtime, training loss, and elapsed time for all nine folds. If
+CUDA is unavailable the command fails rather than substituting a CPU result.
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/plot_phase_continuous.py
+python analysis/src/plot_phase_continuous.py
 ```
 
 Exports overall and per-held-bearing PDF comparisons for the continuous LOBO benchmark.
 
-## Informative sector-classifier position experiment
+## Optional sector-classifier position diagnostic
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --evaluate-sector-position
+python analysis/src/workflow.py --evaluate-sector-position
 ```
 
 Learns a nine-sector classifier from observed UWB features and selects a bearing-specific PDoA expert without receiving the true sector at inference. It is evaluated LODO and exported separately because it is a fixed-sector diagnostic, not a continuous generic model.
 
+## PDoA baseline and circular offset
+
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-phase-offset
+python analysis/src/workflow.py --fit-phase-offset
 ```
 
 Uses the same training/validation assignments and fits a single circular mean
@@ -365,7 +429,7 @@ empty; an undefined training offset fails fitting. Linear R2 is not used.
 ## Trigonometric PDoA correction
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-phase-trig
+python analysis/src/workflow.py --fit-phase-trig
 ```
 
 Fits sine and cosine of the circular residual using the fixed basis
@@ -384,7 +448,7 @@ event. Vector norm is diagnostic only, not a calibrated confidence probability.
 ## First phase learning experiments
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --compare-phase
+python analysis/src/workflow.py --compare-phase
 ```
 
 Compares fixed RF and MLP models with (a) sine/cosine of measured phase only
@@ -407,7 +471,7 @@ not establish generalization outside this grouped split.
 ## SVR phase trial
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-phase-svr
+python analysis/src/workflow.py --fit-phase-svr
 ```
 
 Uses the same two feature sets and circular-residual targets as RF/MLP.
@@ -430,7 +494,7 @@ The local machine has an NVIDIA RTX 3060 with 12 GB VRAM. PyTorch CUDA
 dependencies are specified separately in `requirements-gpu.txt`:
 
 ```bash
-/home/fra/pyvenv/bin/python -m pip install -r analysis/requirements-gpu.txt
+python -m pip install -r analysis/requirements-gpu.txt
 ```
 
 This prepares PyTorch for future GPU models; existing scikit-learn SVR/MLP
@@ -441,7 +505,7 @@ training/validation protocol.
 Verify CUDA forward/backward operations and optimizer updates with:
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/check_gpu.py
+python analysis/src/check_gpu.py
 ```
 
 The synthetic check writes versions, device information and loss values to
@@ -450,7 +514,7 @@ The synthetic check writes versions, device information and loss values to
 Once that check passes, run the GPU phase comparison with:
 
 ```bash
-/home/fra/pyvenv/bin/python analysis/src/workflow.py --fit-phase-torch
+python analysis/src/workflow.py --fit-phase-torch
 ```
 
 It trains two fixed PyTorch MLPs on CUDA: phase-only and enriched. Both predict

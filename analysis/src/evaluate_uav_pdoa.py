@@ -11,32 +11,17 @@ from __future__ import annotations
 import csv
 import json
 import math
-from pathlib import Path
 
 import numpy as np
 
-from recalculate_uav_local_frame import enu
+from uav.angles import wrap_degrees
+from uav.config import ANALYSIS, UAV_PREDICTIONS, UAV_REFERENCE, tag_xy
+from uav.coordinates import q4_heading_deg
 
 
-ROOT = Path(__file__).resolve().parents[2]
-PREDICTIONS = ROOT / "analysis" / "outputs" / "uav_range_transfer" / "predictions.csv"
-REFERENCE = ROOT / "data" / "uav-20260903" / "reference.json"
-OUTPUT = ROOT / "analysis" / "outputs" / "uav_pdoa_diagnostic.json"
-TAG_LAYOUT = {
-    "dw00": (15., 28.), "dw01": (35., 18.), "dw02": (55., 10.),
-    "dw03": (75., 24.), "dw04": (90., 30.), "dw05": (105., 24.),
-    "dw06": (125., 10.), "dw07": (145., 18.), "dw08": (165., 28.),
-}
-
-
-def wrap_degrees(values: np.ndarray) -> np.ndarray:
-    return (values + 180.) % 360. - 180.
-
-
-def tag_xy(tag: str) -> tuple[float, float]:
-    bearing, radius = TAG_LAYOUT[tag]
-    angle = math.radians(bearing)
-    return radius * math.cos(angle), radius * math.sin(angle)
+PREDICTIONS = UAV_PREDICTIONS
+REFERENCE = UAV_REFERENCE
+OUTPUT = ANALYSIS / "outputs" / "uav_pdoa_diagnostic.json"
 
 
 def phase_geometry(rows: list[dict[str, str]], q4_heading_deg: float) -> tuple[np.ndarray, np.ndarray]:
@@ -52,13 +37,11 @@ def phase_geometry(rows: list[dict[str, str]], q4_heading_deg: float) -> tuple[n
 
 def main() -> None:
     reference = json.loads(REFERENCE.read_text())
-    east, north = enu(reference["origin_lat_deg"], reference["origin_lon_deg"],
-                      reference["q4_lat_deg"], reference["q4_lon_deg"])
-    q4_heading_deg = math.degrees(math.atan2(east, north))
+    q4_heading = q4_heading_deg(reference)
     with PREDICTIONS.open(newline="") as source:
         rows = list(csv.DictReader(source))
     observed = np.asarray([float(row["pdoa_deg"]) for row in rows])
-    relative_headings, factors = phase_geometry(rows, q4_heading_deg)
+    relative_headings, factors = phase_geometry(rows, q4_heading)
 
     best = None
     for sign in (-1., 1.):
@@ -74,7 +57,7 @@ def main() -> None:
     report = {
         "status": "diagnostic_oracle_mount_alignment",
         "samples": len(rows),
-        "q4_heading_from_north_deg": q4_heading_deg,
+        "q4_heading_from_north_deg": q4_heading,
         "best_node_to_aircraft_yaw_offset_deg": offset_deg,
         "antenna_order_sign": sign,
         "phase_residual_mae_deg": float(absolute.mean()),

@@ -14,32 +14,29 @@ import math
 from bisect import bisect_left
 from collections import defaultdict
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 
 from workflow.distance_models import make_model
 from workflow.offset import load_assigned_rows
-from recalculate_uav_local_frame import local_xy
+from uav.config import (
+    ANALYSIS,
+    MAX_ALIGNMENT_AGE_S,
+    MAX_INTERPOLATION_GAP_S,
+    NODE_ANTENNA_OFFSET_M,
+    ROOT,
+    TAG_HEIGHT_M,
+    TAG_LAYOUT,
+    UAV_DATA,
+    tag_xy,
+)
+from uav.coordinates import local_xy
 
 
-ROOT = Path(__file__).resolve().parents[2]
-STATIC = ROOT / "analysis" / "csv" / "static_measurements.csv"
-UAV_DIRECTORY = ROOT / "data" / "uav-20260903"
-CONFIG = ROOT / "analysis" / "configs" / "distance_models.json"
-OUTPUT = ROOT / "analysis" / "outputs" / "uav_range_transfer"
-# The DJI height is measured from ground level.  The DWM1002 antenna is
-# mounted 55 cm above the aircraft reference, whereas each DWM1001 tag is
-# mounted 45 cm above ground on a field stake.
-NODE_ANTENNA_OFFSET_M = .55
-TAG_HEIGHT_M = .45
-MAX_ALIGNMENT_AGE_S = .10
-MAX_INTERPOLATION_GAP_S = .50
-TAG_LAYOUT = {
-    "dw00": (15., 28.), "dw01": (35., 18.), "dw02": (55., 10.),
-    "dw03": (75., 24.), "dw04": (90., 30.), "dw05": (105., 24.),
-    "dw06": (125., 10.), "dw07": (145., 18.), "dw08": (165., 28.),
-}
+STATIC = ANALYSIS / "csv" / "static_measurements.csv"
+UAV_DIRECTORY = UAV_DATA
+CONFIG = ANALYSIS / "configs" / "distance_models.json"
+OUTPUT = ANALYSIS / "outputs" / "uav_range_transfer"
 
 
 def metric(values: list[float]) -> dict[str, float]:
@@ -50,13 +47,6 @@ def metric(values: list[float]) -> dict[str, float]:
         rmse_m=float(np.sqrt(np.mean(array ** 2))),
         p90_absolute_error_m=float(np.quantile(np.abs(array), .9, method="inverted_cdf")),
     )
-
-
-def tag_xy(tag: str) -> tuple[float, float]:
-    """Return a surveyed tag coordinate in the O/Q4 local frame."""
-    bearing_deg, radius_m = TAG_LAYOUT[tag]
-    bearing = math.radians(bearing_deg)
-    return radius_m * math.cos(bearing), radius_m * math.sin(bearing)
 
 
 def timestamp(value: str) -> datetime:
