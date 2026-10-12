@@ -23,6 +23,18 @@ OUTPUT = ANALYSIS / "outputs" / "uav_survey"
 GROUND_FUSION_MAX_M = .3
 HEIGHT_CONFOUNDER_SHRINK = .5
 SURVEY_MIN_REDUCTION = .30
+PRE_LOSS_WINDOWS_S = (0., 60., 120., 180.)
+
+
+def fix_loss_times():
+    """Pi times at which each flight leaves RTK status 50 (fix lost)."""
+    losses = {}
+    for path in sorted(UAV_DATA.glob("drone_*.csv")):
+        with path.open(newline="") as source:
+            rows = list(csv.DictReader(source))
+        losses[path.stem] = [timestamp(b["time"]) for a, b in zip(rows, rows[1:])
+                             if a["rtk_status"] == "50" and b["rtk_status"] != "50"]
+    return losses
 
 
 def ground_reference() -> float:
@@ -189,15 +201,31 @@ def main() -> None:
         all(r["reduction"] >= SURVEY_MIN_REDUCTION and r["paired_ci_high_m"] < 0 for r in r3)
         and r3_verdict["parameter_disagreement_m"] <= .5 * r3_verdict["median_parameter_magnitude_m"])
 
+    # R4 (post hoc): exclude fixed samples shortly before an RTK fix loss.
+    losses = fix_loss_times()
+    to_loss = np.asarray([min([(loss - timestamp(row["uwb_time"])).total_seconds() for loss in losses[row["flight"]]
+                               if loss >= timestamp(row["uwb_time"])] or [np.inf]) for row in rows])
+    r4 = []
+    for window in PRE_LOSS_WINDOWS_S:
+        keep = to_loss > window
+        mae, ci, _ = mean_interval(np.abs(taped_error[keep]), groups[keep])
+        biases = {f: float(taped_error[keep & (flight == f)].mean()) for f in flights}
+        r4.append(dict(excluded_window_s=window, samples=int(keep.sum()), mae_m=mae, mae_ci_low_m=ci[0],
+                       mae_ci_high_m=ci[1], **{f"bias_{f[-6:]}_m": b for f, b in biases.items()},
+                       inter_flight_bias_difference_m=abs(np.subtract(*biases.values()))))
+
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    write_csv(OUTPUT / "pre_fix_loss_sensitivity.csv", r4)
     write_csv(OUTPUT / "lever_translation_cross_flight.csv", r3)
     write_csv(OUTPUT / "height_reference.csv", r1)
     write_csv(OUTPUT / "tag_survey_cross_flight.csv", r2)
     write_csv(OUTPUT / "tag_positions.csv", per_tag)
     (OUTPUT / "manifest.json").write_text(json.dumps(dict(
         status="complete", kind="diagnostic (RTK ground truth)", range_offset_3d_m=offset,
-        r1=r1_verdict, r2=r2_verdict, r3=r3_verdict), indent=2, default=float) + "\n")
-    print(json.dumps(dict(r1_verdict=r1_verdict, r2_verdict=r2_verdict, r3=r3, r3_verdict=r3_verdict),
+        r1=r1_verdict, r2=r2_verdict, r3=r3_verdict,
+        r4=dict(kind="post hoc sensitivity", fix_loss_times={f: [str(t) for t in v] for f, v in losses.items()},
+                rows=r4)), indent=2, default=float) + "\n")
+    print(json.dumps(dict(r1_verdict=r1_verdict, r2_verdict=r2_verdict, r3_verdict=r3_verdict, r4=r4),
                      indent=2, default=float))
 
 

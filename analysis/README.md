@@ -764,3 +764,18 @@ python analysis/src/evaluate_uav_survey.py
   evaluate on the other flight.  Same criterion as R2: >= 30% cross-flight
   MAE reduction with paired interval excluding 0, and the two flights'
   parameter vectors agreeing within half of their median magnitude.
+
+- **R4 RTK degradation before fix loss (post hoc, declared after inspecting
+  the data).**  Flight 2 loses the RTK fix at ~640 s (status 50 -> 16, never
+  recovered).  In the preceding minutes, while status is still 50, the range
+  residual drifts to about -0.6 m and `rtk_h_m - height_fusion_m` departs from
+  its flight median.  R4 reports range MAE and per-flight bias excluding fixed
+  samples within 60, 120 and 180 s before a fix loss.  Because the window was
+  chosen after seeing the drift, R4 is a sensitivity analysis, not a result;
+  the primary UAV numbers keep all status-50 samples.
+
+*User facts after R1-R4 (2026-10-12).*  The node sits on the aircraft centre
+line, offset towards the nose; the 0.37 m lateral lever arm fitted by R3 is
+not physical and R3 is therefore read as absorbing other errors, not as a
+mount estimate.  Batteries were hot-swapped between flights (no node reboot).
+The RTK solution is limited to 1 Hz by the aircraft firmware.
