@@ -522,3 +522,117 @@ the cosine/sine PDoA residual using training-only standardization, two hidden
 layers (64, 32), AdamW, 200 epochs, batch size 4096, and seed 42. Validation is
 never used for early stopping or parameter selection. Artifacts, metrics and
 provenance are written to `outputs/pdoa_torch_gpu/`.
+
+## Phase 0 integrity diagnostics
+
+```bash
+python analysis/src/workflow.py --t0-firmware-frame
+python analysis/src/workflow.py --t0-mlp-check        # CUDA required
+python analysis/src/workflow.py --t0-bearing-label    # needs --lodo-phase-stratified
+```
+
+- `t0_1_firmware_frame/`: tests whether the firmware `x_cm`/`y_cm` error is a
+  frame convention (rigid rotation/reflection/translation fitted on train) and
+  fits the firmware phase-to-angle map
+  `x/r = clip(sign * scale * wrap(pdoa - offset) / 180)` by grid search on train.
+  The fitted sign, offset and scale are stored in the manifest.
+- `t0_2_mlp_check/`: the continuous-feature MLP and harmonic models on the
+  grouped split and on each leave-one-bearing-out fold, reporting a 20k-sample
+  training-error probe next to the held-out error.  Low training error with
+  high held-out error indicates extrapolation across discrete bearings, not a
+  fitting bug.
+- `t0_3_bearing_label/`: compares the per-bearing PDoA correction with a
+  label-only baseline (per-tag circular mean of training targets, PDoA unused),
+  using the folds of `pdoa_stratified_lodo`.
+
+## Phase 1 physical PDoA characterization
+
+```bash
+python analysis/src/workflow.py --phase1     # or --t1-characteristic, --t1-invertibility,
+                                             # --t1-elevation, --t1-rotation, --t1-session
+```
+
+No learned correction is introduced.  Intervals are 95% grouped-bootstrap
+percentiles (`workflow/bootstrap.py`, 1000 replicates, seed 42) resampling
+whole configurations (tag, height, distance, rotation), never single samples.
+The grouped test subset stays excluded.  `--t1-elevation` reads the existing
+`pdoa_stratified_lodo` predictions.
+
+- `t1_1_phase_characteristic/`: fits `pdoa = wrap(scale * eta_expected + offset)`
+  on training rows below 15 deg elevation, pooled and per height, and compares
+  its inverse with raw and the trigonometric correction on validation.
+- `t1_2_invertibility/`: per-tag inverse error below 15 deg elevation and the
+  spread of the true phase behind each measured-phase bin.  The useful sector
+  is the contiguous range of boresight angles whose inverse MAE is below 10 deg.
+- `t1_3_elevation/`: MAE by elevation bin and the matched comparison of
+  (h=2, d) against (h=4, 2d), which share the same elevation; h=0 at d and 2d
+  controls for the distance change.
+- `t1_4_rotation/`: per-rotation circular mean residuals and the share of
+  circular variance explained by rotation, below 10 deg elevation.
+- `t1_5_session/`: range bias and per-tag PDoA offset per height session at
+  d >= 24 m (all heights below 10 deg elevation) and pairwise differences.
+  Height and acquisition session are confounded by design.
+
+## Phase 2 generic models, held-out protocols, gating and position
+
+Pre-registered on 2026-10-12, before any phase-2 result was computed:
+
+- **Model `elevation_range`**: target cos/sin of `wrap(pdoa - eta_expected)`;
+  design `[1, sin eta, cos eta, sin 2eta, cos 2eta] (x) [1, e, e^2, r_std]`
+  (20 columns), with `e = atan(h / rho_hat)` from the measured range and known
+  height, and `r_std` the measured range standardized on the training fold.
+  Compared with raw, `trigonometric_global` and the two-parameter
+  `physical_inverse` (T1.1), all refitted per fold.
+- **Success (T2.2)**: at elevation >= 25 deg the MAE falls by >= 30% against
+  `trigonometric_global` with a paired grouped-bootstrap interval excluding 0;
+  below 25 deg the paired interval must not lie entirely above 0.
+- **Gate (T2.3)**: fixed grid over `|pdoa|` in {180, 150, 120, 90, 60, 45, 30}
+  deg, measured range in {31, 25, 20, 15, 10} m and estimated elevation in
+  {90, 45, 30} deg.  Operating points are the lowest-MAE cells reaching 90, 75
+  and 50% coverage of out-of-fold LODO rows.  Position (T2.4) uses the 75% point.
+
+```bash
+python analysis/src/workflow.py --phase2
+# or individually, in this order:
+python analysis/src/workflow.py --loho-distance
+python analysis/src/workflow.py --pdoa-elevation lodo --pdoa-elevation loho --pdoa-elevation lobo
+python analysis/src/workflow.py --pdoa-gate
+python analysis/src/workflow.py --position-elevation lodo --position-elevation loho
+```
+
+Outputs: `distance_loho/` (same layout as `distance_lodo/`),
+`pdoa_elevation_{lodo,loho,lobo}/` (wide predictions, metrics by elevation
+stratum with paired differences against `trigonometric_global`, per-fold
+metrics, and the pre-registered verdict in the manifest), `pdoa_gate/`
+(complete coverage-error curve and operating points) and
+`position_elevation_{lodo,loho}/` (offset range + each phase method, all rows
+and gated).  Operating points are selected on the development pool and must be
+confirmed on the grouped test (T3.2).
+
+## Phase 3 final grouped-test evaluation (T3.2)
+
+Pre-registered on 2026-10-12, before the grouped test subset was evaluated by
+any command.  Models are refitted once on the full development pool (train +
+validation) and frozen:
+
+- **Range**: constant horizontal-distance offset on distance-quality-enabled
+  development rows.  Reported against raw on test, both with the shared 3 m
+  quality mask (primary, as in every earlier benchmark) and on all defined
+  horizontal projections (secondary; the mask uses surveyed geometry).
+- **PDoA**: primary `physical_inverse` (T1.1 characteristic, scale and offset);
+  comparators raw and `trigonometric_global`, refitted on the same pool.
+- **Gate**: measured 3D range <= 25 m and elevation from measured range
+  <= 45 deg (T2.3 75% operating point); no PDoA limit.
+- **Position**: offset ground distance + `physical_inverse` phase through the
+  existing geometric reconstruction, all rows and gated; firmware `x_cm`/`y_cm`
+  as reference.  Quality-enabled rows only, as in T2.4.
+
+All intervals: 95% grouped bootstrap by configuration.  The command refuses to
+run again once `outputs/final_test/manifest.json` reports `complete`;
+`--force-final-test` exists only for recovering from a crashed run and is
+recorded in the manifest.
+
+```bash
+python analysis/src/workflow.py --final-test
+```
+

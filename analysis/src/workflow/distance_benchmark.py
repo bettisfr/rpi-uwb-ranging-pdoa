@@ -15,7 +15,7 @@ from .distance_models import METHODS, make_model
 from .offset import distance_quality_counts, load_assigned_rows
 
 
-def make_folds(distance, subset, protocol):
+def make_folds(distance, subset, protocol, heights=None):
     """Original test is excluded from both training and evaluation in all folds."""
     development = np.isin(subset, ['train', 'validation'])
     if protocol == 'grouped':
@@ -27,6 +27,13 @@ def make_folds(distance, subset, protocol):
             if not train.any() or not evaluate.any():
                 raise ValueError('Empty leave-one-distance-out partition')
             yield f'distance_{held:g}m', train, evaluate
+    elif protocol == 'loho':
+        for held in sorted(np.unique(heights[development])):
+            train = development & (heights != held)
+            evaluate = development & (heights == held)
+            if not train.any() or not evaluate.any():
+                raise ValueError('Empty leave-one-height-out partition')
+            yield f'height_{held:g}m', train, evaluate
     else:
         raise ValueError(f'Unknown protocol: {protocol}')
 
@@ -61,7 +68,7 @@ def run_benchmark(dataset: Path, output: Path, config_path: Path, protocol='grou
     heights = np.array([float(r['height_difference_m']) for r in eligible])
     if not np.isfinite(X).all() or not np.isfinite(y).all():
         raise ValueError('Nonfinite model input or target')
-    destination = output / ('distance_comparison' if protocol == 'grouped' else 'distance_lodo')
+    destination = output / {'grouped': 'distance_comparison', 'lodo': 'distance_lodo', 'loho': 'distance_loho'}[protocol]
     destination.mkdir(exist_ok=True)
     manifest = dict(status='running', protocol=protocol, config=config,
                     source_sha256=digest, split=split_manifest, sklearn_version=sklearn.__version__,
@@ -72,7 +79,9 @@ def run_benchmark(dataset: Path, output: Path, config_path: Path, protocol='grou
                     excluded_by_subset=excluded,
                     quality_counts_all_rows=distance_quality_counts(rows),
                     test_policy='Original grouped test is excluded from all fits and evaluations',
-                    lodo_scope='Train+validation development pool; all tags, rotations and heights of held distance are excluded from fitting',
+                    fold_scope={'grouped': 'Original train fits, original validation evaluates',
+                                'lodo': 'Train+validation development pool; all tags, rotations and heights of held distance are excluded from fitting',
+                                'loho': 'Train+validation development pool; all tags, rotations and distances of held height are excluded from fitting'}[protocol],
                     parameter_selection='Fixed before validation/LODO, no tuning on evaluation rows',
                     p90_definition='nearest rank', fold_models=[])
     manifest_path = destination / 'manifest.json'
@@ -81,7 +90,7 @@ def run_benchmark(dataset: Path, output: Path, config_path: Path, protocol='grou
     assignment_path = destination / 'assignments.csv'
     with assignment_path.open('w', newline='') as stream:
         csv.writer(stream).writerow(('fold_id', 'csv_line', 'role'))
-    for fold, train, evaluate in make_folds(y, subset, protocol):
+    for fold, train, evaluate in make_folds(y, subset, protocol, heights):
         if not train.any() or not evaluate.any():
             raise ValueError('Empty training/evaluation subset')
         with assignment_path.open('a', newline='') as stream:
