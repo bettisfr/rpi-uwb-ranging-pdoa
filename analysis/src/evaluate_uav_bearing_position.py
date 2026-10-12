@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Evaluate firmware bearing and corrected-range position on UAV records.
 
+Reference only: the firmware x/y carry the node's 93.5 deg phase offset
+(static test T0.1), so this bearing is a calibration artifact.  The deployable
+chain is evaluate_uav_pdoa_position.py.
+
 The firmware bearing is derived from its instantaneous x/y output.  A single
 node-to-aircraft yaw offset is calibrated on one flight and transferred to the
 other; tag identity and surveyed tag coordinates are never inference inputs.
@@ -59,8 +63,8 @@ def main() -> None:
     yaw_relative = np.asarray([float(row["yaw_deg"]) - q4_heading for row in rows])
     ground_theta = np.asarray([
         math.degrees(math.atan2(
-            float(row["tag_y_m"]) - float(row["nearest_node_y_m"]),
-            float(row["tag_x_m"]) - float(row["nearest_node_x_m"]),
+            float(row["tag_y_m"]) - float(row["node_y_m"]),
+            float(row["tag_x_m"]) - float(row["node_x_m"]),
         ))
         for row in rows
     ])
@@ -72,16 +76,16 @@ def main() -> None:
         test_mask = ~train_mask if label != "pooled_oracle" else train_mask
         estimated_theta = uncalibrated[test_mask] + offset
         angle_error = wrap_degrees(estimated_theta - ground_theta[test_mask])
-        radius = np.asarray([float(rows[index]["nearest_corrected_horizontal_m"])
+        radius = np.asarray([float(rows[index]["corrected_horizontal_m"])
                              for index in np.flatnonzero(test_mask)])
-        node_x = np.asarray([float(rows[index]["nearest_node_x_m"]) for index in np.flatnonzero(test_mask)])
-        node_y = np.asarray([float(rows[index]["nearest_node_y_m"]) for index in np.flatnonzero(test_mask)])
+        node_x = np.asarray([float(rows[index]["node_x_m"]) for index in np.flatnonzero(test_mask)])
+        node_y = np.asarray([float(rows[index]["node_y_m"]) for index in np.flatnonzero(test_mask)])
         tag_x = np.asarray([float(rows[index]["tag_x_m"]) for index in np.flatnonzero(test_mask)])
         tag_y = np.asarray([float(rows[index]["tag_y_m"]) for index in np.flatnonzero(test_mask)])
         estimate_x = node_x + radius * np.cos(np.radians(estimated_theta))
         estimate_y = node_y + radius * np.sin(np.radians(estimated_theta))
         position_error = np.hypot(estimate_x - tag_x, estimate_y - tag_y)
-        oracle_radius = np.asarray([float(rows[index]["nearest_horizontal_truth_m"])
+        oracle_radius = np.asarray([float(rows[index]["horizontal_truth_m"])
                                     for index in np.flatnonzero(test_mask)])
         oracle_x = node_x + oracle_radius * np.cos(np.radians(estimated_theta))
         oracle_y = node_y + oracle_radius * np.sin(np.radians(estimated_theta))

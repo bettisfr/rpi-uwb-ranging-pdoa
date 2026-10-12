@@ -34,7 +34,7 @@ def main() -> None:
     with SOURCE.open(newline="") as source:
         rows = list(csv.DictReader(source))
     records = [row for row in rows if np.isfinite(float(row["speed_mps"]))]
-    error = np.asarray([float(row["nearest_corrected_horizontal_error_m"]) for row in records])
+    error = np.asarray([float(row["corrected_horizontal_error_m"]) for row in records])
     speed = np.asarray([float(row["speed_mps"]) for row in records])
     height = np.asarray([float(row["node_height_m"]) for row in records])
     yaw = np.asarray([float(row["yaw_deg"]) % 360. for row in records])

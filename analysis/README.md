@@ -636,3 +636,131 @@ recorded in the manifest.
 python analysis/src/workflow.py --final-test
 ```
 
+## Phase 4 static-to-UAV bridge (T4.1, T4.2)
+
+Pre-registered on 2026-10-12, before computing these UAV stratifications.  In
+the UAV campaign the node flies and the tags are fixed on the ground.  The
+script is diagnostic: it uses RTK ground truth to stratify and, for PDoA, the
+oracle mount yaw of `evaluate_uav_pdoa.py`.
+
+```bash
+python analysis/src/evaluate_uav_range.py      # adds uwb_time to the predictions
+python analysis/src/evaluate_uav_pdoa.py
+python analysis/src/evaluate_uav_bridge.py
+```
+
+- **Frozen static models**: the 3D range offset (mean `range_error_3d_m` of
+  quality-enabled static development rows) and the T3.2 PDoA characteristic.
+  Nothing is fitted on UAV data except the oracle mount yaw (PDoA only).
+- **T4.1 range**: UAV 3D range residual after the static offset, by elevation
+  (<10, 10-25, 25-45, >=45 deg), horizontal distance, speed and
+  `uwb_age_s`.  The mechanism is considered shared if, in the static-like
+  stratum (speed < 0.5 m/s, elevation < 10 deg, horizontal <= 30 m), the UAV
+  MAE is within 2x the static grouped-test MAE of the same 3D offset model.
+- **T4.1 PDoA**: residual of the physical inverse against the oracle-mount
+  expected phase, by boresight angle, horizontal distance, elevation and
+  speed.  Shared mechanism if, in the matched stratum (|boresight| <= 15 deg,
+  horizontal <= 25 m, elevation < 45 deg, speed < 0.5 m/s), the UAV MAE is
+  within 2x the matched static test MAE (|boresight| <= 15 deg, measured range
+  <= 25 m, elevation < 45 deg).
+- **T4.2 lag**: RTK re-interpolated at `uwb_time + lag`, lag from -1.0 to
+  +1.0 s in 0.05 s steps (narrowed to -0.5..+1.0 s after the timing fix); 3D range residual MAE per lag.  Synchronization is a
+  confounder if the best lag reduces MAE by >= 10% against lag 0 with a paired
+  interval excluding 0.
+
+Intervals: grouped bootstrap with blocks of flight x tag x 10 s, since UAV
+samples are serially correlated.  Outputs in `outputs/uav_bridge/`.
+
+**Known ground-truth timing issue (found by T4.2, 2026-10-12).**  In the drone
+logs the RTK latitude/longitude updates at 1 Hz while rows arrive at 10 Hz,
+so the logged position is a sample-and-hold staircase.  `interpolate_rtk` in
+`evaluate_uav_range.py` interpolates between consecutive rows, which delays
+the reference by up to 1 s, and `speed_mps` is 0 whenever two consecutive rows
+repeat the same fix (about 88% of the selected records).  Interpolating only
+between fix changes, plus a ~0.35-0.40 s reporting latency that transfers
+between the two flights, reduces the UAV 3D range MAE from ~1.2 m to ~0.32 m.
+UAV results produced before this is fixed in the pipeline are not reliable.
+
+**Ground-truth timing fix (pre-registered 2026-10-12, before rerunning UAV results).**
+
+- RTK x/y are interpolated only between the rows where the logged fix
+  changes; `height_fusion_m` likewise between its own change points (no gap
+  limit, since a constant fused height is legitimate).  A
+  bracket longer than `RTK_MAX_FIX_GAP_S` (1.5 s, i.e. a missed 1 Hz update)
+  is not interpolated.  `speed_mps` is the speed of the bracketing fix segment.
+- A constant reporting latency is added to every UWB timestamp before
+  interpolation.  It is estimated per flight on a 0-1 s grid (25 ms step) by
+  minimizing the standard deviation of the raw 3D range residual (invariant to
+  a constant range bias), and each flight is evaluated with the latency
+  estimated on the *other* flight.  Both estimates are in the manifest.
+- The stale per-row `nearest_*` reference columns are removed; downstream UAV
+  scripts use the primary (interpolated) geometry.
+
+## UAV bearing and position from PDoA (pre-registered 2026-10-12)
+
+`evaluate_uav_bearing_position.py` derives bearing from the firmware x/y,
+which carry the firmware's 93.5 deg phase offset (T0.1); its result is a node
+calibration artifact and is kept only as a reference.  The replacement:
+
+```bash
+python analysis/src/evaluate_uav_pdoa_position.py
+```
+
+- Frozen static models: 3D range offset and PDoA characteristic (T3.2).
+- Off-axis angle: `sin(theta) = sign * eta_corrected * r3d_hat / (180 * rho_hat)`
+  with `rho_hat = sqrt(r3d_hat^2 - h^2)` from the offset-corrected range and the
+  fused height; clipped to [-1, 1]; front hemisphere assumed (|theta| <= 90,
+  as in the static test-bed).  The share of truly-rear samples is reported.
+- Mount (yaw offset, antenna-order sign): grid search on one flight minimizing
+  the corrected-phase residual MAE, evaluated on the other flight; both
+  directions reported.  Comparators: raw PDoA (no characteristic), same mount
+  protocol.
+- Gate: static T2.3 rule, measured range <= 25 m and elevation from measured
+  range <= 45 deg.
+- Transfer criterion: gated cross-flight position MAE within 2x the static
+  grouped-test gated position MAE of the same chain (2.70 m, so <= 5.4 m).
+- Intervals: grouped bootstrap over flight x tag x 10 s blocks.
+
+*Deviation from the pre-registration (recorded after the first run).*  The
+mount search over both signs is not identifiable: `(offset, sign)` and
+`(offset + 180, -sign)` predict identical phase, so the fit picked the
+rear-facing twin on one flight (91% of samples then "behind" the node, gated
+MAE 19.5 m).  The sign is now fixed to the static antenna-order convention
+(`eta = -180 x / r`, node not mounted upside down); the unconstrained fit is
+kept in the manifest.  This assumption must be confirmed against the physical
+mount.
+
+## UAV reference checks: RTK height and tag survey (pre-registered 2026-10-12)
+
+User facts: node mounted face-up and aligned with the nose (confirms the
+static sign convention); tag positions measured with a tape (uncertainty
+unknown); RTK telemetry transport latency 10-20 ms.
+
+```bash
+python analysis/src/evaluate_uav_survey.py
+```
+
+- **R1 height reference.** Replace `height_fusion_m` by
+  `rtk_h_m - ground_ellipsoidal_h`, where the ground reference is the median
+  of `rtk_h_m - height_fusion_m` on RTK-fixed rows with `height_fusion_m` <
+  0.3 m (flight 1 after landing; flight 2 has no fixed ground rows and uses the
+  same field reference).  Report UAV 3D range MAE and per-flight bias with
+  both references.  Height is a confounder if the inter-flight bias difference
+  shrinks by >= 50%.
+- **R2 tag survey.** For each tag, estimate its (x, y) from one flight by
+  least squares on the 3D range residual after the static offset (node from
+  RTK, fixed tag height), and evaluate the other flight with the estimated
+  positions; both directions.  Survey error is supported if (a) cross-flight
+  range MAE falls by >= 30% against the taped layout with a paired interval
+  excluding 0, and (b) the two flights' per-tag estimates agree within half
+  of the median correction magnitude.  This is a diagnostic: UAV position
+  results keep the taped layout as reference and report sensitivity to it.
+
+- **R3 lever arm and layout translation** (added after R1/R2 failed, before
+  running it; motivated by R2's per-tag corrections all pointing towards -y).
+  Fit, on one flight, a body-frame lever arm from the RTK reference point to
+  the node antenna (forward, right; rotated by yaw) plus a common translation
+  of the taped layout (dx, dy), by least squares on the 3D range residual;
+  evaluate on the other flight.  Same criterion as R2: >= 30% cross-flight
+  MAE reduction with paired interval excluding 0, and the two flights'
+  parameter vectors agreeing within half of their median magnitude.

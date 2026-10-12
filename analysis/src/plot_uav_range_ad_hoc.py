@@ -23,15 +23,15 @@ def main() -> None:
     for flight in flights:
         train = [row for row in rows if row["flight"] == flight]
         offsets[flight] = np.mean([
-            float(row["nearest_horizontal_truth_m"]) - (
-                float(row["nearest_horizontal_truth_m"]) + float(row["nearest_raw_horizontal_error_m"])
+            float(row["horizontal_truth_m"]) - (
+                float(row["horizontal_truth_m"]) + float(row["raw_horizontal_error_m"])
             )
             for row in train
         ])
 
-    distance = np.asarray([float(row["nearest_horizontal_truth_m"]) for row in rows])
-    raw = np.asarray([float(row["nearest_raw_horizontal_error_m"]) for row in rows])
-    static = np.asarray([float(row["nearest_corrected_horizontal_error_m"]) for row in rows])
+    distance = np.asarray([float(row["horizontal_truth_m"]) for row in rows])
+    raw = np.asarray([float(row["raw_horizontal_error_m"]) for row in rows])
+    static = np.asarray([float(row["corrected_horizontal_error_m"]) for row in rows])
     # Each row is evaluated with the offset fitted only on the other flight.
     ad_hoc = np.asarray([raw[index] + offsets[next(f for f in flights if f != row["flight"])]
                          for index, row in enumerate(rows)])
