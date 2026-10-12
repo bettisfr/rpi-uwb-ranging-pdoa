@@ -779,3 +779,8 @@ line, offset towards the nose; the 0.37 m lateral lever arm fitted by R3 is
 not physical and R3 is therefore read as absorbing other errors, not as a
 mount estimate.  Batteries were hot-swapped between flights (no node reboot).
 The RTK solution is limited to 1 Hz by the aircraft firmware.
+The forward offset of the node antenna from the aircraft centre is treated as
+negligible (user assessment); no lever arm is applied.  The RTK quality
+indicator is `rtk_status` itself (50 fixed in flight 1 throughout; in flight 2
+50, then 16 after the fix loss); R4 shows that the range residual degrades
+before that indicator changes.

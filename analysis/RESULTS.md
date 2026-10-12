@@ -48,6 +48,12 @@ invalid.
 
 ## Recorded deviations and assumptions
 
+- The grouped test subset was not pristine: before this plan,
+  `windowed_position_sensitivity.py` had already reported window-gated
+  position on it (draft Table "window-position"). T3.2 used models and a gate
+  frozen from the development pool only, but its results are a second look at
+  the test subset, not a first one.
+
 - UAV mount sign fixed to the static convention: `(offset, sign)` and
   `(offset+180°, −sign)` are not distinguishable from PDoA alone. The user
   confirmed the node was face-up and aligned with the nose.
