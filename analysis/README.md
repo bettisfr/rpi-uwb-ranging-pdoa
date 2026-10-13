@@ -784,3 +784,30 @@ negligible (user assessment); no lever arm is applied.  The RTK quality
 indicator is `rtk_status` itself (50 fixed in flight 1 throughout; in flight 2
 50, then 16 after the fix loss); R4 shows that the range residual degrades
 before that indicator changes.
+
+## Gate comparison on windows (pre-registered 2026-10-13)
+
+Question: is the softer observable gate (measured range <= 25 m, elevation
+from measured range <= 45 deg; T2.3) comparable to the draft's window gate
+(circular std of raw PDoA <= 10 deg)?
+
+```bash
+python analysis/src/windowed_position.py --window-size 10   # also 20, 30
+```
+
+- Same records for every gate: non-overlapping windows of K consecutive
+  samples per run/tag on the development pool, out-of-fold LODO quadratic
+  range and global-trigonometric PDoA (`geometry_joint_windowK`).
+- Gates: none, std <= 10 deg, std <= 20 deg, range+elevation, range+elevation
+  and std <= 10 deg.  Window range/elevation use the window mean of measured
+  3D range.
+- Decision (primary K = 20): adopt the range gate in the paper if its
+  position MAE is <= 1.25x the std <= 10 deg MAE; otherwise keep the window
+  gate and report the range gate as the per-sample alternative.  Intervals:
+  grouped bootstrap by configuration.
+
+*Outcome (2026-10-13).*  K = 20: range gate 2.10 m [1.81, 2.44] at 78.8%
+coverage vs std <= 10 deg 0.83 m [0.70, 0.98] at 53.8% (ratio 2.5 > 1.25), so
+the window gate is kept.  Not pre-registered as a candidate but computed in the
+same run: std <= 20 deg gives 0.85 m [0.75, 0.97] at 69.5%, and range + std <=
+10 deg gives 0.67 m at 45.6%.  K = 10 and 30 show the same ordering.
