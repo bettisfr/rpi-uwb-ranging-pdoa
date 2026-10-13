@@ -99,8 +99,12 @@ def main() -> None:
                                     position_mae_m=position, position_ci_low_m=position_ci[0], position_ci_high_m=position_ci[1],
                                     position_p90_m=float(np.quantile(position_error[mask], .9, method="inverted_cdf"))))
             if method == "pdoa_physical":
-                records += [dict(train_flight=train_flight, flight=flight[i], tag=tags[i], gated=bool(gated[i]),
-                                 rear=bool(rear[i]), bearing_error_deg=float(bearing_error[i]),
+                records += [dict(train_flight=train_flight, flight=flight[i], tag=tags[i], uwb_time=rows[i]["uwb_time"],
+                                 gated=bool(gated[i]), rear=bool(rear[i]), pdoa_deg=float(rows[i]["pdoa_deg"]),
+                                 raw_range_m=float(rows[i]["raw_range_m"]), elevation_hat_deg=float(elevation_hat[i]),
+                                 tag_x_hat_m=float(x_hat[i]), tag_y_hat_m=float(y_hat[i]),
+                                 tag_x_m=float(tag_x[i]), tag_y_m=float(tag_y[i]),
+                                 bearing_error_deg=float(bearing_error[i]),
                                  position_error_m=float(position_error[i])) for i in np.flatnonzero(test)]
     primary = [row for row in reports if row["method"] == "pdoa_physical" and row["scope"] == "gated"]
     verdict = dict(static_gated_position_mae_m=STATIC_GATED_POSITION_MAE_M,

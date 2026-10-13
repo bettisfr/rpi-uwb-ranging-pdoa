@@ -811,3 +811,37 @@ coverage vs std <= 10 deg 0.83 m [0.70, 0.98] at 53.8% (ratio 2.5 > 1.25), so
 the window gate is kept.  Not pre-registered as a candidate but computed in the
 same run: std <= 20 deg gives 0.85 m [0.75, 0.97] at 69.5%, and range + std <=
 10 deg gives 0.67 m at 45.6%.  K = 10 and 30 show the same ordering.
+
+## UAV window gate (pre-registered 2026-10-13)
+
+Question: does the static window gate (circular std of raw PDoA within K
+consecutive samples) transfer to the flying node?
+
+```bash
+python analysis/src/evaluate_uav_pdoa_position.py   # writes per-sample tag estimates
+python analysis/src/evaluate_uav_window_gate.py
+```
+
+- Per-sample tag estimates come from the cross-flight chain of
+  `evaluate_uav_pdoa_position.py` (frozen static range offset and physical
+  inverse; mount fitted on the other flight; sign fixed).
+- Windows: non-overlapping K = 20 consecutive samples per flight x tag in
+  time order (~4 s at ~5 Hz); a window is discarded if two consecutive samples
+  are more than 0.5 s apart.  Because the tags are fixed and the node moves,
+  the window estimate is the mean of the per-sample tag estimates in the local
+  frame (not the mean of range and phase as in the static case).
+- Gates, thresholds frozen from the static study: none, PDoA std <= 10 deg,
+  PDoA std <= 20 deg, window mean measured range <= 25 m with elevation <= 45 deg.
+- Transfer criterion: for each direction, the std <= 20 deg window MAE is
+  <= 2x the static K = 20 std <= 20 deg MAE (0.85 m, so <= 1.70 m).  The
+  static reference used the trigonometric phase, while the UAV chain uses the
+  physical inverse (same-size difference on static data, about 0.1 m).
+- Intervals: flight x tag x 10 s blocks.  K = 10 and 30 are reported as
+  sensitivity.
+
+*Outcome (2026-10-13).*  K = 20, std <= 20 deg: 0.87 m [0.69, 1.06] (flight 2
+evaluated, 52% of 77 windows) and 1.34 m [1.12, 1.57] (flight 1 evaluated, 63%
+of 324 windows); both <= 1.70 m, so the gate transfers.  Ungated windows give
+2.34 / 1.47 m, and per-sample error on the same windows is 1.29 / 1.55 m.
+Flight 2 yields few gap-free windows, so its interval is wide.  K = 10 and 30
+keep the same ordering.

@@ -45,6 +45,7 @@ invalid.
 | PDoA near boresight vs static | **7.1° [5.9, 8.7] vs 6.7°**: shared mechanism | `uav_bridge/` |
 | PDoA by off-axis angle | 14° (≤15°) → 23° (55–90°) → 41° (behind the node) | `uav_bridge/` |
 | Bearing/position, cross-flight mount | gated position **2.65 / 2.68 m** vs static test 2.70 m; bearing 15.6 / 16.5°; mount yaw −2 / −3° | `uav_pdoa_position/` |
+| Window gate on the flying node (K=20, PDoA std ≤ 20°, cross-flight) | **0.87 m** [0.69, 1.06] at 52% / **1.34 m** [1.12, 1.57] at 63%, vs ungated 2.34 / 1.47 m; static reference 0.85 m. The gate transfers | `uav_window_gate/` |
 | Firmware-x/y bearing (reference only) | 47° / 10 m: a firmware calibration artifact | `uav_bearing_position/` |
 
 ## Recorded deviations and assumptions
