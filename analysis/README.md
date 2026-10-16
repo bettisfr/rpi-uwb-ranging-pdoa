@@ -1,5 +1,26 @@
 # Measurement-analysis workflow
 
+## Reproduce the current paper
+
+The canonical instructions and table-to-command mapping are in [PAPER.md](PAPER.md).
+All required source modules are available on this branch; no checkout of
+`analysis/test-plan` is needed. From the repository root, using your own Python
+environment with the dependencies installed:
+
+```bash
+python analysis/src/reproduce_paper.py --all --dry-run
+python analysis/src/reproduce_paper.py --all --resume
+```
+
+The complete run includes the original CPU range-model benchmarks and the CUDA
+LOBO phase MLP. It exports numeric tables to `analysis/outputs/paper_tables/`,
+with source hashes, and saves one log per command. The documented stage options
+let collaborators rerun one part of the workflow with its prerequisites.
+The UAV primary position chain now uses the same quadratic horizontal-range
+and global-harmonic phase corrections as the static analysis.
+The detailed commands below also cover older exploratory comparisons; use
+`PAPER.md` to identify which results belong to the current paper.
+
 This directory keeps reproducible analysis separate from field acquisition and
 from paper-specific plotting code.  It has two deliberately separate parts:
 the controlled static calibration workflow in `src/workflow/`, and the
@@ -47,15 +68,17 @@ not silently fall back to CPU.
 python analysis/src/main.py --build-static-dataset
 python analysis/src/workflow.py --split-static
 
-# Static range, PDoA/bearing, and derived position benchmarks.
+# Static range, PDoA/bearing, and derived position benchmarks (individual examples).
 # The LOBO command uses CUDA for its MLP fold in addition to CPU baselines.
 python analysis/src/workflow.py --compare-distance --lodo-distance
 python analysis/src/workflow.py --lodo-phase-stratified --lobo-phase-continuous
 python analysis/src/workflow.py --evaluate-generic-position
 python analysis/src/windowed_position_sensitivity.py
 
-# UAV: only after the static split and range configuration above are available.
+# Fit/freeze static models before running the UAV workflow.
+python analysis/src/workflow.py --final-test
 python analysis/src/uav_workflow.py --all
+python analysis/src/evaluate_uav_window_gate.py
 ```
 
 On the local machine, replace every `python` command below with

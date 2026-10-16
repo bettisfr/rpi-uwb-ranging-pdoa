@@ -18,7 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
+from workflow.bootstrap import configuration_keys, mean_interval
 from workflow.offset import load_assigned_rows
+from workflow.phase_elevation import estimated_elevation_deg
 from workflow.position_benchmark import metrics, reconstruct, write_csv
 
 
@@ -57,21 +59,37 @@ def load_prediction_maps() -> tuple[dict[int, dict[str, str]], dict[int, dict[st
     return range_predictions, phase_predictions
 
 
+# Static T2.3 operating point: measured 3D range and elevation from it.
+RANGE_GATE_M, ELEVATION_GATE_DEG = 25.0, 45.0
+
+
+def gates(source: list[dict]) -> dict[str, np.ndarray]:
+    """Observable window gates compared on identical records."""
+    stability = np.asarray([row["pdoa_std_deg"] for row in source], dtype=float)
+    range_m = np.asarray([row["raw_range_m"] for row in source], dtype=float)
+    height = np.asarray([row["height_difference_m"] for row in source], dtype=float)
+    near = (range_m <= RANGE_GATE_M) & (estimated_elevation_deg(range_m, height) <= ELEVATION_GATE_DEG)
+    return {"all": np.ones(len(source), dtype=bool), "std<=10": stability <= 10.0,
+            "std<=20": stability <= 20.0, "range": near, "range+std<=10": near & (stability <= 10.0)}
+
+
 def summarize(name: str, source: list[dict], x_hat: np.ndarray, y_hat: np.ndarray,
               clipped: np.ndarray) -> list[dict]:
-    """Report overall metrics plus raw-PDoA-stability gates."""
+    """Report overall metrics under each observable gate, with grouped intervals."""
     x_true = np.asarray([row["x_true_m"] for row in source], dtype=float)
     y_true = np.asarray([row["y_true_m"] for row in source], dtype=float)
-    stability = np.asarray([row["pdoa_std_deg"] for row in source], dtype=float)
+    groups = configuration_keys([row["tag"] for row in source], [row["height_difference_m"] for row in source],
+                                [row["held_distance_m"] for row in source], [row["tag_rotation_deg"] for row in source])
+    error = np.hypot(x_hat - x_true, y_hat - y_true)
     result = []
-    for gate in (None, 10.0, 20.0):
-        select = np.ones(len(source), dtype=bool) if gate is None else stability <= gate
+    for gate, select in gates(source).items():
+        _, (low, high), _ = mean_interval(error[select], groups[select])
         result.append(dict(
-            method=name,
-            pdoa_std_gate_deg="all" if gate is None else gate,
+            method=name, gate=gate,
             accepted_windows=int(select.sum()),
             accepted_fraction=float(select.mean()),
             **metrics(x_true[select], y_true[select], x_hat[select], y_hat[select], clipped[select]),
+            position_mae_ci_low_m=low, position_mae_ci_high_m=high,
         ))
     return result
 
@@ -111,6 +129,8 @@ def main() -> None:
             record = dict(
                 run_file=first["run_file"], tag=tag, height_difference_m=float(first["height_difference_m"]),
                 held_distance_m=float(first["target_ground_distance_m"]),
+                tag_rotation_deg=float(first["tag_rotation_deg"]),
+                raw_range_m=float(np.mean([float(row["range_m"]) for row in window])),
                 x_true_m=float(first["gt_x_m"]), y_true_m=float(first["gt_y_m"]),
                 pdoa_std_deg=circular_std(raw_phase),
                 raw_rho_m=float(np.mean(raw_rho)), corrected_rho_m=float(np.mean(corrected_rho)),
@@ -163,9 +183,9 @@ def main() -> None:
     for row in summary:
         if row["method"] == f"geometry_joint_window{window_size}":
             print(
-                f"gate={row['pdoa_std_gate_deg']}: n={row['accepted_windows']} "
+                f"gate={row['gate']}: n={row['accepted_windows']} "
                 f"({row['accepted_fraction']:.1%}), position MAE={row['position_mae_m']:.3f} m, "
-                f"P90={row['position_p90_m']:.3f} m"
+                f"[{row['position_mae_ci_low_m']:.3f}, {row['position_mae_ci_high_m']:.3f}], P90={row['position_p90_m']:.3f} m"
             )
 
 

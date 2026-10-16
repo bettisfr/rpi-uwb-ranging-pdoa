@@ -54,10 +54,10 @@ def main() -> None:
     for train_flight in flights:
         train = [row for row in rows if row["flight"] == train_flight]
         test = [row for row in rows if row["flight"] != train_flight]
-        train_x = np.asarray([float(row["nearest_horizontal_truth_m"]) + float(row["nearest_raw_horizontal_error_m"]) for row in train])
-        train_y = np.asarray([float(row["nearest_horizontal_truth_m"]) for row in train])
-        test_x = np.asarray([float(row["nearest_horizontal_truth_m"]) + float(row["nearest_raw_horizontal_error_m"]) for row in test])
-        test_y = np.asarray([float(row["nearest_horizontal_truth_m"]) for row in test])
+        train_x = np.asarray([float(row["horizontal_truth_m"]) + float(row["raw_horizontal_error_m"]) for row in train])
+        train_y = np.asarray([float(row["horizontal_truth_m"]) for row in train])
+        test_x = np.asarray([float(row["horizontal_truth_m"]) + float(row["raw_horizontal_error_m"]) for row in test])
+        test_y = np.asarray([float(row["horizontal_truth_m"]) for row in test])
         for method in methods:
             predicted, parameters = fit_predict(method, train_x, train_y, test_x)
             report.append({

@@ -27,12 +27,12 @@ OUTPUT = ANALYSIS / "outputs" / "uav_geometry_residual"
 def feature_matrix(rows: list[dict[str, str]], q4_heading_deg: float, model: str) -> np.ndarray:
     relative, yaw, distance = [], [], []
     for row in rows:
-        dx = float(row["tag_x_m"]) - float(row["nearest_node_x_m"])
-        dy = float(row["tag_y_m"]) - float(row["nearest_node_y_m"])
+        dx = float(row["tag_x_m"]) - float(row["node_x_m"])
+        dy = float(row["tag_y_m"]) - float(row["node_y_m"])
         target_heading = q4_heading_deg + math.degrees(math.atan2(dx, dy))
         relative.append(math.radians(target_heading - float(row["yaw_deg"])))
         yaw.append(math.radians(float(row["yaw_deg"])))
-        distance.append(float(row["nearest_horizontal_truth_m"]))
+        distance.append(float(row["horizontal_truth_m"]))
     relative, yaw, distance = np.asarray(relative), np.asarray(yaw), np.asarray(distance)
     columns = [np.ones(len(rows))]
     if model in ("relative", "relative_yaw", "relative_yaw_distance"):
@@ -59,7 +59,7 @@ def main() -> None:
     with SOURCE.open(newline="") as source:
         rows = list(csv.DictReader(source))
     flights = sorted({row["flight"] for row in rows})
-    target = np.asarray([float(row["nearest_raw_horizontal_error_m"]) for row in rows])
+    target = np.asarray([float(row["raw_horizontal_error_m"]) for row in rows])
     flight = np.asarray([row["flight"] for row in rows])
     report = []
     for train_flight in flights:

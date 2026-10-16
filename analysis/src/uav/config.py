@@ -23,7 +23,9 @@ NODE_ANTENNA_OFFSET_M = 0.55
 TAG_HEIGHT_M = 0.45
 
 MAX_ALIGNMENT_AGE_S = 0.10
-MAX_INTERPOLATION_GAP_S = 0.50
+# The logger writes ~10 Hz rows but RTK position refreshes at ~1 Hz and is held
+# in between; interpolate between fix changes, never across a missed update.
+RTK_MAX_FIX_GAP_S = 1.50
 
 # (Bearing from the positive local y-axis in degrees, radial distance in m).
 TAG_LAYOUT: dict[str, tuple[float, float]] = {
