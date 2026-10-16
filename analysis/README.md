@@ -265,6 +265,20 @@ must be assessed separately with leave-one-distance-out.
 
 ## Complete distance comparison: SVR and MLP
 
+To evaluate grouped-test positions using quadratic range correction and global
+harmonic phase correction, run:
+
+```bash
+python analysis/src/evaluate_position_quadratic_test.py
+```
+
+Both models are fitted on train + validation. The original distance-quality
+filter and fixed selection thresholds (measured range <= 25 m, estimated
+elevation <= 45 degrees) are retained. The offset--harmonic chain is also
+evaluated as a reproducibility check. CSV metrics include MAE, RMSE, P90,
+coverage, and 95% configuration-bootstrap intervals (1000 replicates, seed 42).
+Predictions, models, and provenance are saved to `outputs/position_quadratic_test/`.
+
 For the tag-specific PDoA diagnostics under leave-one-height-out, run:
 
 ```bash
