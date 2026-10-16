@@ -265,6 +265,31 @@ must be assessed separately with leave-one-distance-out.
 
 ## Complete distance comparison: SVR and MLP
 
+For the tag-specific PDoA diagnostics under leave-one-height-out, run:
+
+```bash
+python analysis/src/evaluate_phase_tag_loho.py
+```
+
+Each tag's two-harmonic correction and label-only circular-mean baseline are
+fitted on the other two heights in the development pool. The grouped test is
+excluded. Results, predictions, and fold models are exported to
+`outputs/pdoa_tag_diagnostic_loho/`. These are diagnostics using the fixed
+tag-to-bearing assignment, rather than generic direction estimators.
+
+To evaluate the fixed offset, linear, and quadratic corrections on the original
+grouped test subset, fitting on train + validation, run:
+
+```bash
+python analysis/src/evaluate_range_parametric_test.py
+```
+
+This exports metrics (overall and per height), per-observation predictions,
+fitted models, and a split/data manifest to `outputs/range_parametric_test/`.
+It uses the existing distance-quality policy and does not tune models on test.
+Pass `--include-forest` to evaluate the Random Forest with its existing fixed
+hyperparameters on the same split as well.
+
 ```bash
 python analysis/src/workflow.py --compare-distance
 python analysis/src/workflow.py --lodo-distance
