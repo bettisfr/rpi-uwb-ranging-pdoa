@@ -3,6 +3,10 @@
 Parametric OpenSCAD source for holding the DWM1002 PDoA node vertically on a
 small platform.
 
+![Rendered DWM1002 desktop stand, showing the slotted saddles and countersunk mounting holes.](preview.png)
+
+The preview shows only the printable stand, without the reference PCB.
+
 The current model uses:
 
 - an `80 x 50 x 3 mm` rounded base;
